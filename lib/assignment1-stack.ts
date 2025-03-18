@@ -3,6 +3,9 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apig from 'aws-cdk-lib/aws-apigateway';
 import { Construct } from 'constructs';
+import * as custom from 'aws-cdk-lib/custom-resources';
+import { generateBatch } from '../shared/util';
+import { items } from '../seed/items';
 
 export class Assignment1Stack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -28,11 +31,37 @@ export class Assignment1Stack extends cdk.Stack {
       deployOptions: { stageName: 'dev' },
       defaultCorsPreflightOptions: {
         allowOrigins: ['*'],
-        allowMethods: ['OPTIONS', 'POST'],
+        allowMethods: ['OPTIONS', 'POST', 'GET'],
         allowHeaders: ['Content-Type'],
       },
     });
-    const items = api.root.addResource('items');
-    items.addMethod('POST', new apig.LambdaIntegration(addItemFn));
+
+    new custom.AwsCustomResource(this, 'SeedItems', {
+      onCreate: {
+        service: 'DynamoDB',
+        action: 'batchWriteItem',
+        parameters: {
+          RequestItems: { [itemsTable.tableName]: generateBatch(items) },
+        },
+        physicalResourceId: custom.PhysicalResourceId.of('seedItems'),
+      },
+      policy: custom.AwsCustomResourcePolicy.fromSdkCalls({
+        resources: [itemsTable.tableArn],
+      }),
+    });
+
+    const itemsResource = api.root.addResource('items');
+    itemsResource.addMethod('POST', new apig.LambdaIntegration(addItemFn));
+
+    const getItemsFn = new lambda.NodejsFunction(this, 'GetItemsFn', {
+      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/getItems.ts`,
+      handler: 'handler',
+      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
+    });
+    itemsTable.grantReadData(getItemsFn);
+
+    const itemById = itemsResource.addResource('{id}');
+    itemById.addMethod('GET', new apig.LambdaIntegration(getItemsFn));
   }
 }
