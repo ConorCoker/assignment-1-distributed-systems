@@ -75,5 +75,17 @@ export class Assignment1Stack extends cdk.Stack {
 
     const specificItem = itemById.addResource('{timestamp}');
     specificItem.addMethod('PUT', new apig.LambdaIntegration(updateItemFn));
+
+    const translateItemFn = new lambda.NodejsFunction(this, 'TranslateItemFn', {
+      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/translateItem.ts`,
+      handler: 'handler',
+      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
+    });
+    itemsTable.grantReadData(translateItemFn);
+    
+    const translation = specificItem.addResource('translation');
+    translation.addMethod('GET', new apig.LambdaIntegration(translateItemFn));
+    translateItemFn.role?.addManagedPolicy(cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('TranslateFullAccess'));
   }
 }
