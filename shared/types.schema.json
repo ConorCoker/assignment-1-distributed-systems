@@ -21,6 +21,10 @@
                 },
                 "timestamp": {
                     "type": "string"
+                },
+                "translations": {
+                    "additionalProperties": false,
+                    "type": "object"
                 }
             },
             "required": [

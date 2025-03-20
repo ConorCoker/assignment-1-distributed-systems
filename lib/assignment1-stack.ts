@@ -93,6 +93,7 @@ export class Assignment1Stack extends cdk.Stack {
 
     const translation = specificItem.addResource('translation');
     translation.addMethod('GET', new apig.LambdaIntegration(translateItemFn));
+    itemsTable.grantWriteData(translateItemFn);
     
     new cdk.CfnOutput(this, 'ApiKeyId', { value: apiKey.keyId });
   }

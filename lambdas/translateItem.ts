@@ -1,6 +1,6 @@
 import { APIGatewayProxyHandlerV2 } from 'aws-lambda';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { TranslateClient, TranslateTextCommand } from '@aws-sdk/client-translate';
 
 const ddbDocClient = DynamoDBDocumentClient.from(new DynamoDBClient({ region: process.env.REGION }));
@@ -20,10 +20,25 @@ export const handler: APIGatewayProxyHandlerV2 = async (event) => {
   }));
   if (!result.Item) return { statusCode: 404, body: JSON.stringify({ error: 'Item not found' }) };
 
+  const item = result.Item;
+  const translations = item.translations || {};
+  if (translations[language]) {
+    return { statusCode: 200, body: JSON.stringify({ ...item, translatedDescription: translations[language] }) };
+  }
+
   const translation = await translateClient.send(new TranslateTextCommand({
-    Text: result.Item.description,
+    Text: item.description,
     SourceLanguageCode: 'en',
     TargetLanguageCode: language,
   }));
-  return { statusCode: 200, body: JSON.stringify({ ...result.Item, translatedDescription: translation.TranslatedText }) };
+  translations[language] = translation.TranslatedText;
+
+  await ddbDocClient.send(new UpdateCommand({
+    TableName: process.env.TABLE_NAME,
+    Key: { id, timestamp },
+    UpdateExpression: 'SET translations = :t',
+    ExpressionAttributeValues: { ':t': translations },
+  }));
+
+  return { statusCode: 200, body: JSON.stringify({ ...item, translatedDescription: translation.TranslatedText }) };
 };
