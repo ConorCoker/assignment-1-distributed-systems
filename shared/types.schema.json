@@ -32,6 +32,15 @@
                 "timestamp"
             ],
             "type": "object"
+        },
+        "ItemQueryParams": {
+            "additionalProperties": false,
+            "properties": {
+                "active": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
         }
     }
 }

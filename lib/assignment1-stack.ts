@@ -2,8 +2,8 @@ import * as cdk from 'aws-cdk-lib';
 import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apig from 'aws-cdk-lib/aws-apigateway';
-import { Construct } from 'constructs';
 import * as custom from 'aws-cdk-lib/custom-resources';
+import { Construct } from 'constructs';
 import { generateBatch } from '../shared/util';
 import { items } from '../seed/items';
 
@@ -27,11 +27,27 @@ export class Assignment1Stack extends cdk.Stack {
     });
     itemsTable.grantReadWriteData(addItemFn);
 
+    const getItemsFn = new lambda.NodejsFunction(this, 'GetItemsFn', {
+      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/getItems.ts`,
+      handler: 'handler',
+      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
+    });
+    itemsTable.grantReadData(getItemsFn);
+
+    const updateItemFn = new lambda.NodejsFunction(this, 'UpdateItemFn', {
+      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/updateItem.ts`,
+      handler: 'handler',
+      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
+    });
+    itemsTable.grantReadWriteData(updateItemFn);
+
     const api = new apig.RestApi(this, 'AppApi', {
       deployOptions: { stageName: 'dev' },
       defaultCorsPreflightOptions: {
         allowOrigins: ['*'],
-        allowMethods: ['OPTIONS', 'POST', 'GET'],
+        allowMethods: ['OPTIONS', 'POST', 'GET', 'PUT'],
         allowHeaders: ['Content-Type'],
       },
     });
@@ -48,20 +64,16 @@ export class Assignment1Stack extends cdk.Stack {
       policy: custom.AwsCustomResourcePolicy.fromSdkCalls({
         resources: [itemsTable.tableArn],
       }),
+      logRetention: cdk.aws_logs.RetentionDays.ONE_DAY,
     });
 
     const itemsResource = api.root.addResource('items');
     itemsResource.addMethod('POST', new apig.LambdaIntegration(addItemFn));
 
-    const getItemsFn = new lambda.NodejsFunction(this, 'GetItemsFn', {
-      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
-      entry: `${__dirname}/../lambdas/getItems.ts`,
-      handler: 'handler',
-      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
-    });
-    itemsTable.grantReadData(getItemsFn);
-
     const itemById = itemsResource.addResource('{id}');
     itemById.addMethod('GET', new apig.LambdaIntegration(getItemsFn));
+
+    const specificItem = itemById.addResource('{timestamp}');
+    specificItem.addMethod('PUT', new apig.LambdaIntegration(updateItemFn));
   }
 }
