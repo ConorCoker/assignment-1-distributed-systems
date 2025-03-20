@@ -43,14 +43,29 @@ export class Assignment1Stack extends cdk.Stack {
     });
     itemsTable.grantReadWriteData(updateItemFn);
 
+    const translateItemFn = new lambda.NodejsFunction(this, 'TranslateItemFn', {
+      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
+      entry: `${__dirname}/../lambdas/translateItem.ts`,
+      handler: 'handler',
+      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
+    });
+    itemsTable.grantReadData(translateItemFn);
+    translateItemFn.role?.addManagedPolicy(cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('TranslateFullAccess'));
+
     const api = new apig.RestApi(this, 'AppApi', {
       deployOptions: { stageName: 'dev' },
       defaultCorsPreflightOptions: {
         allowOrigins: ['*'],
         allowMethods: ['OPTIONS', 'POST', 'GET', 'PUT'],
-        allowHeaders: ['Content-Type'],
+        allowHeaders: ['Content-Type', 'x-api-key'], 
       },
     });
+
+    const apiKey = new apig.ApiKey(this, 'ApiKey');
+    const usagePlan = new apig.UsagePlan(this, 'UsagePlan', {
+      apiStages: [{ api, stage: api.deploymentStage }],
+    });
+    usagePlan.addApiKey(apiKey);
 
     new custom.AwsCustomResource(this, 'SeedItems', {
       onCreate: {
@@ -68,24 +83,17 @@ export class Assignment1Stack extends cdk.Stack {
     });
 
     const itemsResource = api.root.addResource('items');
-    itemsResource.addMethod('POST', new apig.LambdaIntegration(addItemFn));
+    itemsResource.addMethod('POST', new apig.LambdaIntegration(addItemFn), { apiKeyRequired: true });
 
     const itemById = itemsResource.addResource('{id}');
     itemById.addMethod('GET', new apig.LambdaIntegration(getItemsFn));
 
     const specificItem = itemById.addResource('{timestamp}');
-    specificItem.addMethod('PUT', new apig.LambdaIntegration(updateItemFn));
+    specificItem.addMethod('PUT', new apig.LambdaIntegration(updateItemFn), { apiKeyRequired: true });
 
-    const translateItemFn = new lambda.NodejsFunction(this, 'TranslateItemFn', {
-      runtime: cdk.aws_lambda.Runtime.NODEJS_22_X,
-      entry: `${__dirname}/../lambdas/translateItem.ts`,
-      handler: 'handler',
-      environment: { TABLE_NAME: itemsTable.tableName, REGION: 'eu-west-1' },
-    });
-    itemsTable.grantReadData(translateItemFn);
-    
     const translation = specificItem.addResource('translation');
     translation.addMethod('GET', new apig.LambdaIntegration(translateItemFn));
-    translateItemFn.role?.addManagedPolicy(cdk.aws_iam.ManagedPolicy.fromAwsManagedPolicyName('TranslateFullAccess'));
+    
+    new cdk.CfnOutput(this, 'ApiKeyId', { value: apiKey.keyId });
   }
 }
